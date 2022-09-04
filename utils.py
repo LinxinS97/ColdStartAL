@@ -10,6 +10,7 @@ def load_weights(model, wts_path, args):
         # each pre-trained model has a different output size
         # it's 128 for MoCoTeacher
         # and 2048 for swAVTeacher
+        model.fc = nn.Linear(model.fc.weight.shape[1], 128)
         if os.path.exists(wts_path):
             print(f"=> loading {args.backbone} weights ")
             wts = torch.load(wts_path)
@@ -36,6 +37,7 @@ def load_weights(model, wts_path, args):
             raise ValueError("=> no checkpoint found at '{}'".format(wts_path))
 
     elif args.backbone == "moco":
+        model.fc = nn.Linear(model.fc.weight.shape[1], 128)
         if os.path.isfile(wts_path):
             print("=> loading checkpoint '{}'".format(wts_path))
             checkpoint = torch.load(wts_path, map_location="cpu")
@@ -66,65 +68,62 @@ def sample_batch(loader):
 
 
 class ResNet(nn.Module):
-    def __init__(self, num_class: int, n_hidden_layers: int, hidden_size: int, arch: str,
-                 dropout: float = 0.0):
+    def __init__(self, arch: str, is_ftall: bool = False, num_classes: int = 10):
         super(ResNet, self).__init__()
         self.model = models.__dict__[arch]()
-
-        self.model.fc = nn.Linear(self.model.fc.weight.shape[1], 128)
-
-        if n_hidden_layers == 1:
-            self.classifier = nn.Linear(128, num_class)
-        else:
-            layers = [nn.Linear(128, hidden_size), nn.ReLU(), nn.Dropout(p=dropout)]
-            for i in range(n_hidden_layers - 1):
-                layers.extend([nn.Linear(hidden_size, hidden_size), nn.ReLU(), nn.Dropout(p=dropout)])
-            fcs = nn.Sequential(*layers)
-            last_layer = nn.Linear(hidden_size, num_class)
-            self.classifier = nn.Sequential(fcs, last_layer)
+        self.ftall = is_ftall
+        if is_ftall:
+            self.classifier = nn.Linear(self.model.fc.in_features, num_classes)
 
     def forward(self, x):
         out = self.model(x)
-        out = self.classifier(out)
-        return out
-
-    def extract_features(self, x):
-        out = self.model(x)
+        if self.ftall:
+            out = self.classifier(out)
         return out
 
 
-def get_model(arch, args):
+def get_backbone_model(arch, args):
     if args.ftall:
-        model = ResNet(args.num_classes, n_hidden_layers=1, hidden_size=256, arch=arch)
+        model = ResNet(arch=arch, is_ftall=True, num_classes=args.num_classes)
+        if args.dataset in ['mnist', 'fashion_mnist']:
+            model.model.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+        load_weights(model.model, args.weights, args)
+        model.model.fc = nn.Sequential()
         return model
-    else:
-        model = ResNet(args.num_classes, n_hidden_layers=1, hidden_size=256, arch=arch)
-        for p in model.model.parameters():
-            p.requires_grad = False
-        return model
+
+    model = models.__dict__[arch]()
+    load_weights(model, args.weights, args)
+    if args.dataset in ['mnist', 'fashion_mnist']:
+        model.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+    model.fc = nn.Sequential()
+    for p in model.parameters():
+        p.requires_grad = False
+    return model
 
 
 @torch.no_grad()
-def get_feats(dataset, loader, model, device, args):
-    if args.backbone == "compress":
-        cached_feats = f'{args.save}/inference_feats_{dataset}_compress18' \
-                       f'_{"MoCo" if "MoCo" in args.weights else "swAV"}Teacher.pth.tar'
-    elif args.backbone == "moco":
-        cached_feats = f'{args.save}/inference_feats_{dataset}_moco.pth.tar'
+def get_feats(loader, device, args):
+    model = get_backbone_model(args.arch, args).to(device)
+    model.eval()
+    with torch.no_grad():
+        # if args.backbone == "compress":
+        #     cached_feats = f'{args.save}/inference_feats_{dataset}_compress18' \
+        #                    f'_{"MoCo" if "MoCo" in args.weights else "swAV"}Teacher.pth.tar'
+        # elif args.backbone == "moco":
+        #     cached_feats = f'{args.save}/inference_feats_{dataset}_moco.pth.tar'
+        #
+        # if args.load_cache and os.path.exists(cached_feats):
+        #     print(f'=> loading inference feats of {dataset} from cache: {cached_feats}')
+        #     return torch.load(cached_feats)
+        # else:
+        print('get feats =>')
 
-    if args.load_cache and os.path.exists(cached_feats):
-        print(f'=> loading inference feats of {dataset} from cache: {cached_feats}')
-        return torch.load(cached_feats)
-    else:
-        print('get inference feats =>')
-
-        model.eval()
         feats, labels, ptr = None, None, 0
 
         for images, target, _, _ in tqdm(loader):
             images = images.to(device)
             cur_targets = target.cpu()
-            cur_feats = model.model(images).cpu()
+            cur_feats = model(images).cpu()
             B, D = cur_feats.shape
             inds = torch.arange(B) + ptr
 
@@ -136,7 +135,7 @@ def get_feats(dataset, loader, model, device, args):
             labels.index_copy_(0, inds, cur_targets)
             ptr += B
 
-        torch.save((feats, labels), cached_feats)
+        # torch.save((feats, labels), cached_feats)
         return feats, labels
 
 
@@ -147,6 +146,7 @@ def normalize(x):
 class Normalize(nn.Module):
     def forward(self, x):
         return x / x.norm(2, dim=1, keepdim=True)
+
 
 
 class AverageMeter(object):
@@ -195,8 +195,8 @@ class ProgressMeter(object):
 
 
 def accuracy(output, target, topk=(1,)):
-    """Computes the accuracy over the k top predictions for the specified values of k"""
     with torch.no_grad():
+        """Computes the accuracy over the k top predictions for the specified values of k"""
         maxk = max(topk)
         batch_size = target.size(0)
 

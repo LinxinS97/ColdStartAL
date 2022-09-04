@@ -2,7 +2,6 @@ from tqdm import tqdm
 import faiss
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
 import numpy as np
@@ -175,7 +174,6 @@ def uniform(inference_labels, splits, args):
 def random(all_indices, inference_labels, splits, args):
     shuffled_indices = np.random.choice(all_indices, len(all_indices), replace=False)
     for split in splits:
-        samples = np.zeros(split, dtype=np.int32)
         samples = shuffled_indices[:split]
         print('{} inidices are sampled in total, {} of them are unique'.format(len(samples), len(np.unique(samples))))
         print(
@@ -188,31 +186,38 @@ class UncertaintySampler:
                  unlabeled_indices,
                  backbone,
                  device,
-                 budget):
+                 budget,
+                 ftall=False):
         self.unlabeled_loader = unlabeled_loader
         self.unlabeled_indices = unlabeled_indices
         self.budget = budget
+        self.ftall = ftall
         self.pred = self.get_pred(backbone, device)
 
     def sample(self, strategy_name):
         return getattr(self, strategy_name)()
 
-    @torch.no_grad()
-    def get_pred(self, backbone, device):
-        backbone.eval()
-        logits, ptr = None, 0
-        for images, _, _, indices in tqdm(self.unlabeled_loader, desc="unlabeled features extraction"):
-            images = images.to(device)
-            cur_logits = backbone(images).cpu()
-            B, D = cur_logits.shape
-            inds = torch.arange(B) + ptr
+    def get_pred(self, model, device):
+        with torch.no_grad():
+            model.eval()
+            logits, ptr = None, 0
+            for images, _, feature, indices in tqdm(self.unlabeled_loader, desc="unlabeled features extraction"):
+                if self.ftall:
+                    images = images.to(device)
+                    cur_logits = model(images).cpu()
+                else:
+                    feature = feature.to(device)
+                    cur_logits = model(feature).cpu()
+                B, D = cur_logits.shape
+                inds = torch.arange(B) + ptr
 
-            if not ptr:
-                logits = torch.zeros((len(self.unlabeled_loader.dataset), D)).float()
+                if not ptr:
+                    logits = torch.zeros((len(self.unlabeled_loader.dataset), D)).float()
 
-            logits.index_copy_(0, inds, cur_logits)
-            ptr += B
-        return F.softmax(logits, dim=1)
+                logits.index_copy_(0, inds, cur_logits)
+                ptr += B
+            model.train()
+        return F.softmax(logits.detach(), dim=1)
 
     def entropy(self):
         entropies = torch.sum(self.pred * torch.log(self.pred), dim=1)
@@ -240,6 +245,10 @@ class UncertaintySampler:
         margin = max_pred
 
         return self.unlabeled_indices[margin.sort()[1][:self.budget]]
+
+    def random(self):
+        shuffled_indices = np.random.choice(self.unlabeled_indices, len(self.unlabeled_indices), replace=False)
+        return shuffled_indices[:self.budget]
 
 
 def normalize(x):

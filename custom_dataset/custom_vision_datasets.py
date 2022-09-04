@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 from torchvision import datasets
 from torch.utils.data import Dataset, DataLoader
@@ -29,34 +30,26 @@ class ImageNetSubset(datasets.ImageFolder):
         return len(self.indices)
 
 
-class CIFAR100Subset(Dataset):
-    def __init__(self, path, transform, indices):
-        self.cifar100 = datasets.CIFAR100(root=path,
-                                          download=True,
-                                          train=True,
-                                          transform=transform)
-        self.indices = indices
-
-    def __getitem__(self, index):
-        data, target = self.cifar100[self.indices[index]]
-        return data, target, self.indices[index]
-
-    def __len__(self):
-        return len(self.indices)
-
-
-class CIFAR10Subset(Dataset):
-    def __init__(self, path, transform, indices, features=None):
-        self.cifar10 = datasets.CIFAR10(root=path,
-                                        download=True,
-                                        train=True,
-                                        transform=transform)
-        self.indices = indices
+class FeatureDataset(Dataset):
+    def __init__(self, path, transform, indices=None, features=None, train=True, name=None):
         self.features = features
+
+        if 'cifar' in name:
+            name = name.replace('cifar', 'CIFAR')
+        if 'mnist' in name:
+            name = 'MNIST'
+        if 'fashion_mnist' in name:
+            name = 'FashionMNIST'
+
+        self.dataset = datasets.__dict__[name](root=path, train=train, download=True, transform=transform)
+        if not train:
+            self.indices = np.arange(len(self.dataset))
+        else:
+            self.indices = indices
 
     def __getitem__(self, index):
         features = torch.tensor([])
-        data, target = self.cifar10[int(self.indices[index])]
+        data, target = self.dataset[int(self.indices[index])]
         if self.features is not None:
             features = self.features[index]
         return data, target, features, int(self.indices[index])
@@ -158,14 +151,15 @@ def get_inference_loader(dataset, indices, extracted_features, args, if_shuffle=
             num_workers=args.workers, pin_memory=True,
         )
 
-    elif dataset == "cifar100":
+    elif dataset == 'cifar100':
         normalize = transforms.Normalize(mean=[0.5071, 0.4865, 0.4409],
                                          std=[0.2673, 0.2564, 0.2762])
         inference_loader = DataLoader(
-            CIFAR100Subset(args.data, transforms.Compose([
+            FeatureDataset(args.data, transforms.Compose([
+                transforms.Resize(32),
                 transforms.ToTensor(),
                 normalize,
-            ]), indices),
+            ]), indices, extracted_features, name=dataset),
             batch_size=args.batch_size, shuffle=if_shuffle,
             num_workers=args.workers, pin_memory=True,
         )
@@ -174,16 +168,24 @@ def get_inference_loader(dataset, indices, extracted_features, args, if_shuffle=
         normalize = transforms.Normalize(mean=[0.4914, 0.4822, 0.4465],
                                          std=[0.2470, 0.2435, 0.2616])
         inference_loader = DataLoader(
-            CIFAR10Subset(args.data, transforms.Compose([
-                transforms.RandomResizedCrop((28, 28)),
-                transforms.RandomHorizontalFlip(),
-                # normalize,
+            FeatureDataset(args.data, transforms.Compose([
+                transforms.Resize(32),
                 transforms.ToTensor(),
-            ]), indices, extracted_features),
+                normalize,
+            ]), indices, extracted_features, name=dataset),
             batch_size=args.batch_size, shuffle=if_shuffle,
             num_workers=args.workers, pin_memory=True,
         )
-
+    elif dataset in ['mnist', 'fashion_mnist']:
+        normalize = transforms.Normalize((0.5,), (0.5,))
+        inference_loader = DataLoader(
+            FeatureDataset(args.data, transforms.Compose([
+                transforms.ToTensor(),
+                normalize,
+            ]), indices, extracted_features, name=dataset),
+            batch_size=args.batch_size, shuffle=if_shuffle,
+            num_workers=args.workers, pin_memory=True,
+        )
     else:
         raise NotImplementedError
 
@@ -226,12 +228,12 @@ def get_train_loader(dataset, current_indices, extracted_features, args):
         normalize = transforms.Normalize(mean=[0.5071, 0.4865, 0.4409],
                                          std=[0.2673, 0.2564, 0.2762])
         train_loader = DataLoader(
-            CIFAR100Subset(args.data, transforms.Compose([
+            FeatureDataset(args.data, transforms.Compose([
                 transforms.RandomResizedCrop(32),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
                 normalize,
-            ]), current_indices),
+            ]), current_indices, extracted_features, name=dataset),
             batch_size=args.batch_size, shuffle=True,
             num_workers=args.workers, pin_memory=True,
         )
@@ -240,24 +242,32 @@ def get_train_loader(dataset, current_indices, extracted_features, args):
         normalize = transforms.Normalize(mean=[0.4914, 0.4822, 0.4465],
                                          std=[0.2470, 0.2435, 0.2616])
         train_loader = DataLoader(
-            CIFAR10Subset(args.data, transforms.Compose([
-                transforms.RandomResizedCrop(32),
+            FeatureDataset(args.data, transforms.Compose([
+                transforms.RandomCrop(32, padding=4),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
                 normalize,
-            ]), current_indices, extracted_features),
+            ]), current_indices, extracted_features, name=dataset),
             batch_size=args.batch_size, shuffle=True,
             num_workers=args.workers, pin_memory=True,
         )
-
-
+    elif dataset in ['mnist', 'fashion_mnist']:
+        normalize = transforms.Normalize((0.5,), (0.5,))
+        train_loader = DataLoader(
+            FeatureDataset(args.data, transforms.Compose([
+                transforms.ToTensor(),
+                normalize,
+            ]), current_indices, extracted_features, name=dataset),
+            batch_size=args.batch_size, shuffle=True,
+            num_workers=args.workers, pin_memory=True,
+        )
     else:
         raise NotImplementedError
 
     return train_loader
 
 
-def get_test_loader(dataset, args):
+def get_test_loader(dataset, extracted_features, args):
     if dataset == "imagenet" or dataset == "imagenet_lt":
         valdir = os.path.join(args.data, 'val')
         test_loader = torch.utils.data.DataLoader(
@@ -268,33 +278,31 @@ def get_test_loader(dataset, args):
                 transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
             ])),
-            batch_size=args.batch_size, shuffle=False,
+            batch_size=args.test_batch_size, shuffle=False,
             num_workers=args.workers, pin_memory=True,
         )
 
-    elif dataset == "cifar100":
+    elif dataset in ['cifar10', 'cifar100']:
         test_loader = torch.utils.data.DataLoader(
-            datasets.CIFAR100(args.data, download=True,
-                              transform=transforms.Compose([
-                                  transforms.ToTensor(),
-                                  transforms.Normalize(mean=[0.5071, 0.4865, 0.4409],
-                                                       std=[0.2673, 0.2564, 0.2762])
-                              ]),
-                              train=False),
-            batch_size=args.batch_size, shuffle=False,
+            FeatureDataset(args.data,
+                           transform=transforms.Compose([
+                               transforms.ToTensor(),
+                               transforms.Normalize(mean=[0.4914, 0.4822, 0.4465],
+                                                    std=[0.2470, 0.2435, 0.2616])
+                           ]),
+                           train=False, features=extracted_features, name=dataset),
+            batch_size=args.test_batch_size, shuffle=False,
             num_workers=args.workers, pin_memory=True,
         )
-
-    elif dataset == "cifar10":
+    elif dataset in ['mnist', 'fashion_mnist']:
         test_loader = torch.utils.data.DataLoader(
-            datasets.CIFAR10(args.data, download=True,
-                             transform=transforms.Compose([
-                                 transforms.ToTensor(),
-                                 transforms.Normalize(mean=[0.4914, 0.4822, 0.4465],
-                                                      std=[0.2470, 0.2435, 0.2616])
-                             ]),
-                             train=False),
-            batch_size=args.batch_size, shuffle=False,
+            FeatureDataset(args.data,
+                           transform=transforms.Compose([
+                               transforms.ToTensor(),
+                               transforms.Normalize((0.5,), (0.5,)),
+                           ]),
+                           train=False, features=extracted_features, name=dataset),
+            batch_size=args.test_batch_size, shuffle=False,
             num_workers=args.workers, pin_memory=True,
         )
 
