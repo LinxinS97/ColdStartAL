@@ -2,10 +2,7 @@ from torch import Tensor
 
 from my_parser import parser
 import copy
-from typing import Tuple, Any
-import random
-
-import numpy as np
+from typing import Tuple, Any, Optional
 import torch.nn.parallel
 import torch.optim
 import torch.utils.data
@@ -24,18 +21,7 @@ def main():
     random.seed(seed)
     torch.use_deterministic_algorithms(True)
 
-    if args.dataset == "imagenet":
-        args.num_images = 1281167
-        args.num_classes = 1000
-
-    elif args.dataset == "imagenet_lt":
-        args.num_images = 115846
-
-    elif args.dataset == "cifar100":
-        args.num_images = 50000
-        args.num_classes = 100
-
-    elif args.dataset in ["cifar10"]:
+    if args.dataset == "cifar10":
         args.num_images = 50000
         args.num_classes = 10
     elif args.dataset in ['mnist', 'fashion_mnist']:
@@ -84,10 +70,8 @@ class FirthRegularizer(torch.nn.Module):
         n_samps_, n_ways_ = outputs.shape
         n_ways_ = torch.tensor(n_ways_).to(self.device)
 
-        # logp = torch.div(torch.sub(torch.logsumexp(outputs, dim=-1, keepdim=True), outputs), n_ways_)
         logp = (outputs - torch.logsumexp(outputs, dim=-1, keepdim=True)) / n_ways_
 
-        # negce = logp @ prior.reshape(n_ways_, 1)
         ceavg = -logp.mean()
         if self.meta:
             return torch.mul(ceavg, self.coeff), ceavg
@@ -260,7 +244,8 @@ def main_worker(args, device: torch.device):
             if not args.ftall:
                 model = nn.Linear(512, args.num_classes).to(device)
                 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-                lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 200], gamma=0.6)
+                # lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 200], gamma=0.6)
+                lr_scheduler = None
             else:
                 optimizer = torch.optim.SGD(model.parameters(), lr=args.lr,
                                             momentum=0.9, weight_decay=5e-4)
@@ -285,11 +270,12 @@ def main_worker(args, device: torch.device):
             total_history[step] = history
 
         else:
-            for firth_coeff in [-10, -1.0, -0.1, -0.01, 0.0, 0.01, 0.1, 1.0, 10.0]:
+            for firth_coeff in [-10.0, -1.0, -0.1, -0.01, 0.0, 0.01, 0.1, 1.0, 10.0]:
                 if not args.ftall:
                     model = nn.Linear(512, args.num_classes).to(device)
                     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-                    lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 200], gamma=0.6)
+                    lr_scheduler = None
+                    # lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 200], gamma=0.6)
                 else:
                     optimizer = torch.optim.SGD(model.parameters(), lr=args.lr,
                                                 momentum=0.9, weight_decay=5e-4)

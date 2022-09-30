@@ -85,9 +85,9 @@ class ResNet(nn.Module):
 def get_backbone_model(arch, args):
     if args.ftall:
         model = ResNet(arch=arch, is_ftall=True, num_classes=args.num_classes)
+        load_weights(model.model, args.weights, args)
         if args.dataset in ['mnist', 'fashion_mnist']:
             model.model.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
-        load_weights(model.model, args.weights, args)
         model.model.fc = nn.Sequential()
         return model
 
