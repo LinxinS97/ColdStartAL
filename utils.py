@@ -123,8 +123,12 @@ def get_feats(loader, device, args):
         for images, target, _, _ in tqdm(loader):
             images = images.to(device)
             cur_targets = target.cpu()
-            cur_feats = model(images).cpu()
-            B, D = cur_feats.shape
+            if args.dataset == 'cifar10':
+                cur_feats = model(images).cpu()
+                B, D = cur_feats.shape
+            else:
+                cur_feats = images.view(images.shape[0], -1).cpu()
+                B, D = cur_feats.shape
             inds = torch.arange(B) + ptr
 
             if not ptr:

@@ -147,11 +147,15 @@ def compute_loss(outputs: torch.Tensor,
 def main_worker(args, device: torch.device):
     all_indices = np.arange(args.num_images)
     inference_loader = get_inference_loader(args.dataset, all_indices, None, args)
+    if args.dataset == "cifar10":
+        input_feat = 512
+    else:
+        input_feat = 784
 
     if args.ftall:
         model = get_backbone_model(args.arch, args).to(device)
     else:
-        model = nn.Linear(512, args.num_classes).to(device)
+        model = nn.Linear(input_feat, args.num_classes).to(device)
 
     # get all dataset labels in eval mode
     features, inference_labels = get_feats(inference_loader, device, args)
@@ -242,7 +246,7 @@ def main_worker(args, device: torch.device):
 
         if args.meta:
             if not args.ftall:
-                model = nn.Linear(512, args.num_classes).to(device)
+                model = nn.Linear(input_feat, args.num_classes).to(device)
                 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
                 # lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 200], gamma=0.6)
                 lr_scheduler = None
@@ -272,7 +276,7 @@ def main_worker(args, device: torch.device):
         else:
             for firth_coeff in [-10.0, -1.0, -0.1, -0.01, 0.0, 0.01, 0.1, 1.0, 10.0]:
                 if not args.ftall:
-                    model = nn.Linear(512, args.num_classes).to(device)
+                    model = nn.Linear(input_feat, args.num_classes).to(device)
                     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
                     lr_scheduler = None
                     # lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 200], gamma=0.6)

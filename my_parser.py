@@ -23,8 +23,8 @@ parser.add_argument('-tb', '--test-batch-size', default=512, type=int,
                     help='mini-batch size (default: 256), this is the total '
                          'batch size of all GPUs on the current node when '
                          'using Data Parallel or Distributed Data Parallel')
-parser.add_argument('--budget-size', type=int, default=100, help='query budget size per step.')
-parser.add_argument('--total-budget-size', type=int, default=1000, help='total query budget size.')
+parser.add_argument('--budget-size', type=int, default=200, help='query budget size per step.')
+parser.add_argument('--total-budget-size', type=int, default=2000, help='total query budget size.')
 parser.add_argument('--lr', default=0.01, type=float, help='initial learning rate')
 parser.add_argument('--meta_lr', default=0.1, type=float, help='initial learning rate for meta method')
 parser.add_argument('--meta_update', default=10, type=int, help='iteration until meta gradient update')
