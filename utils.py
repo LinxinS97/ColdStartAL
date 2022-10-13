@@ -13,10 +13,10 @@ def load_weights(model, wts_path, args):
         model.fc = nn.Linear(model.fc.weight.shape[1], 128)
         if os.path.exists(wts_path):
             print(f"=> loading {args.backbone} weights ")
-            wts = torch.load(wts_path)
+            wts = torch.load(wts_path, map_location=torch.device('cpu'))
             if 'state_dict' in wts:
                 ckpt = wts['state_dict']
-            if 'model' in wts:
+            elif 'model' in wts:
                 ckpt = wts['model']
             else:
                 ckpt = wts
@@ -31,8 +31,7 @@ def load_weights(model, wts_path, args):
                     state_dict[m_key] = m_val
                     print('not copied => ' + m_key)
 
-            model.load_state_dict(state_dict)
-            print(f"Weights of {args.backbone} loaded.")
+            return state_dict
         else:
             raise ValueError("=> no checkpoint found at '{}'".format(wts_path))
 
@@ -82,28 +81,36 @@ class ResNet(nn.Module):
         return out
 
 
+class Identity(nn.Module):
+    def __init__(self):
+        super(Identity, self).__init__()
+
+    def forward(self, x):
+        return x
+
+
 def get_backbone_model(arch, args):
     if args.ftall:
         model = ResNet(arch=arch, is_ftall=True, num_classes=args.num_classes)
-        load_weights(model.model, args.weights, args)
+        model.model.load_state_dict(load_weights(model.model, args.weights, args))
         if args.dataset in ['mnist', 'fashion_mnist']:
             model.model.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
-        model.model.fc = nn.Sequential()
+        model.model.fc = Identity()
         return model
 
     model = models.__dict__[arch]()
-    load_weights(model, args.weights, args)
+    model.load_state_dict(load_weights(model, args.weights, args))
     if args.dataset in ['mnist', 'fashion_mnist']:
         model.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
-    model.fc = nn.Sequential()
+    model.fc = Identity()
     for p in model.parameters():
         p.requires_grad = False
     return model
 
 
-@torch.no_grad()
 def get_feats(loader, device, args):
-    model = get_backbone_model(args.arch, args).to(device)
+    model = get_backbone_model(args.arch, args)
+    model = model.to(device)
     model.eval()
     with torch.no_grad():
         # if args.backbone == "compress":

@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from torchvision import datasets
 from torch.utils.data import Dataset, DataLoader
-from PIL import ImageFilter, Image
+from PIL import ImageFilter
 import random
 from torchvision.transforms import transforms
 
@@ -75,8 +75,8 @@ def get_inference_loader(dataset, indices, extracted_features, args, if_shuffle=
                 transforms.ToTensor(),
                 normalize,
             ]), indices, extracted_features, name=dataset),
-            batch_size=args.batch_size, shuffle=if_shuffle,
-            num_workers=args.workers, pin_memory=True,
+            batch_size=args.test_batch_size, shuffle=if_shuffle,
+            num_workers=args.workers, pin_memory=False,
         )
     elif dataset in ['mnist', 'fashion_mnist']:
         normalize = transforms.Normalize((0.5,), (0.5,))
@@ -85,8 +85,8 @@ def get_inference_loader(dataset, indices, extracted_features, args, if_shuffle=
                 transforms.ToTensor(),
                 normalize,
             ]), indices, extracted_features, name=dataset),
-            batch_size=args.batch_size, shuffle=if_shuffle,
-            num_workers=args.workers, pin_memory=True,
+            batch_size=args.test_batch_size, shuffle=if_shuffle,
+            num_workers=args.workers, pin_memory=False,
         )
     else:
         raise NotImplementedError
@@ -107,7 +107,7 @@ def get_train_loader(dataset, current_indices, extracted_features, args):
                 normalize,
             ]), current_indices, extracted_features, name=dataset),
             batch_size=args.batch_size, shuffle=True,
-            num_workers=args.workers, pin_memory=True,
+            num_workers=args.workers, pin_memory=False,
         )
     elif dataset in ['mnist', 'fashion_mnist']:
         normalize = transforms.Normalize((0.5,), (0.5,))
@@ -117,7 +117,7 @@ def get_train_loader(dataset, current_indices, extracted_features, args):
                 normalize,
             ]), current_indices, extracted_features, name=dataset),
             batch_size=args.batch_size, shuffle=True,
-            num_workers=args.workers, pin_memory=True,
+            num_workers=args.workers, pin_memory=False,
         )
     else:
         raise NotImplementedError
@@ -136,7 +136,7 @@ def get_test_loader(dataset, extracted_features, args):
                            ]),
                            train=False, features=extracted_features, name=dataset),
             batch_size=args.test_batch_size, shuffle=False,
-            num_workers=args.workers, pin_memory=True,
+            num_workers=args.workers, pin_memory=False,
         )
     elif dataset in ['mnist', 'fashion_mnist']:
         test_loader = torch.utils.data.DataLoader(
@@ -147,7 +147,7 @@ def get_test_loader(dataset, extracted_features, args):
                            ]),
                            train=False, features=extracted_features, name=dataset),
             batch_size=args.test_batch_size, shuffle=False,
-            num_workers=args.workers, pin_memory=True,
+            num_workers=args.workers, pin_memory=False,
         )
 
     else:

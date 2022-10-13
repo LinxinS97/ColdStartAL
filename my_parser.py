@@ -11,14 +11,12 @@ parser.add_argument('--valid_step', default=10, type=int, help='constant gap for
 parser.add_argument('--meta_valid_step', default=5, type=int, help='constant gap for meta learning validation')
 parser.add_argument('--patience', default=20, type=int, help='number of total steps to run')
 parser.add_argument('--meta_patience', default=20, type=int, help='number of total steps to run')
-# parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
-#                     help='manual epoch number (useful on restarts)')
 parser.add_argument('-b', '--batch-size', default=256, type=int,
                     metavar='N',
                     help='mini-batch size (default: 256), this is the total '
                          'batch size of all GPUs on the current node when '
                          'using Data Parallel or Distributed Data Parallel')
-parser.add_argument('-tb', '--test-batch-size', default=512, type=int,
+parser.add_argument('-tb', '--test-batch-size', default=1024, type=int,
                     metavar='N',
                     help='mini-batch size (default: 256), this is the total '
                          'batch size of all GPUs on the current node when '
@@ -32,8 +30,6 @@ parser.add_argument('--init_coeff', default=0.1, type=float,
                     help='initial coefficient for meta & constant lambda methods')
 parser.add_argument('--search-coeff', action="store_true",
                     help='search best coefficient for constant methods')
-# parser.add_argument('-p', '--print-freq', default=10, type=int,
-#                     metavar='N', help='print frequency (default: 10)')
 parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
 parser.add_argument('--resume-indices', default='', type=str, metavar='PATH',
@@ -54,4 +50,4 @@ parser.add_argument('--meta', action='store_true', help='use meta learning metho
 parser.add_argument('--valid_size', type=int, default=1500, help='valid set size.')
 parser.add_argument('--accumulate_val', action='store_true', help='let model select validation set itself')
 parser.add_argument('--filenumber', type=int, default=0, help='index of saved files')
-parser.add_argument('--device', type=int, default=0, help='gpu device id')
+parser.add_argument('--device', type=int, help='gpu device id')

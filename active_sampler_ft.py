@@ -182,6 +182,7 @@ def main_worker(args, device: torch.device):
     total_steps = args.total_budget_size // args.budget_size
     best_lambda = 0.0
     valid_budget_size = args.valid_size // total_steps
+    bs_tmp = args.batch_size
 
     for step in range(1, total_steps + 1):
         # Training data loading code
@@ -233,11 +234,15 @@ def main_worker(args, device: torch.device):
               f'{len(current_val_indices)} valid inidices are sampled in total, '
               f'{len(np.unique(current_indices))} of them are unique')
 
+        args.batch_size = len(current_indices) // 10
+
         print('{}% of all categories is seen'.format(
             len(np.unique(inference_labels[current_indices])) / args.num_classes * 100))
         train_loader = get_train_loader(args.dataset, current_indices, features[current_indices], args)
 
         print('Training task model started ...')
+        print(f'current lr: {args.lr}')
+        print(f'current bs: {args.batch_size}')
         best_val_acc = 0
 
         if args.accumulate_val:
@@ -247,13 +252,17 @@ def main_worker(args, device: torch.device):
         if args.meta:
             if not args.ftall:
                 model = nn.Linear(input_feat, args.num_classes).to(device)
+                # optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
                 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-                # lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 200], gamma=0.6)
+                # lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=500)
+                # optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
                 lr_scheduler = None
             else:
-                optimizer = torch.optim.SGD(model.parameters(), lr=args.lr,
-                                            momentum=0.9, weight_decay=5e-4)
-                lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=500)
+                model = get_backbone_model(args.arch, args).to(device)
+                optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
+                # optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+                # lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=500)
+                lr_scheduler = None
 
             firth_meta_model = FirthRegularizer(args.init_coeff,
                                                 meta=True,
@@ -262,12 +271,12 @@ def main_worker(args, device: torch.device):
                                                 max_size=20)
             meta_optimizer = torch.optim.Adam(firth_meta_model.parameters(), lr=args.meta_lr)
 
-            if args.ftall:
-                history = meta_ftall(train_loader, val_loader, model, optimizer, lr_scheduler,
-                                     firth_meta_model, meta_optimizer, device, args)
-            else:
-                history = meta_train(train_loader, val_loader, model, optimizer, lr_scheduler,
-                                     firth_meta_model, meta_optimizer, device, args)
+            # if args.ftall:
+            #     history = meta_ftall(train_loader, val_loader, model, optimizer, lr_scheduler,
+            #                          firth_meta_model, meta_optimizer, device, args)
+            # else:
+            history = meta_train(train_loader, val_loader, model, optimizer, lr_scheduler,
+                                 firth_meta_model, meta_optimizer, device, args)
 
             test_acc1 = validate(test_loader, model, device, args)
             history.update({'final_test_acc1': test_acc1})
@@ -277,13 +286,16 @@ def main_worker(args, device: torch.device):
             for firth_coeff in [-10.0, -1.0, -0.1, -0.01, 0.0, 0.01, 0.1, 1.0, 10.0]:
                 if not args.ftall:
                     model = nn.Linear(input_feat, args.num_classes).to(device)
+                    # optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
                     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
                     lr_scheduler = None
+                    # lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=500)
                     # lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 200], gamma=0.6)
                 else:
-                    optimizer = torch.optim.SGD(model.parameters(), lr=args.lr,
-                                                momentum=0.9, weight_decay=5e-4)
-                    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=500)
+                    model = get_backbone_model(args.arch, args).to(device)
+                    optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
+                    lr_scheduler = None
+                    # lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=500)
 
                 if not args.search_coeff:
                     firth_coeff = args.init_coeff
@@ -297,14 +309,14 @@ def main_worker(args, device: torch.device):
                 else:
                     no_firth = False
 
-                if args.ftall and firth_coeff != 0:
-                    history = const_ftall(train_loader, val_loader,
-                                          model, optimizer, lr_scheduler, loss_firth,
-                                          device, args)
-                else:
-                    history = train(train_loader, val_loader,
-                                    model, optimizer, lr_scheduler, loss_firth,
-                                    device, args, no_firth=no_firth)
+                # if args.ftall:
+                #     history = const_ftall(train_loader, val_loader,
+                #                           model, optimizer, lr_scheduler, loss_firth,
+                #                           device, args)
+                # else:
+                history = train(train_loader, val_loader,
+                                model, optimizer, lr_scheduler, loss_firth,
+                                device, args, no_firth=no_firth)
 
                 val_acc1 = validate(val_loader, model, device, args)
                 print(f'lambda {firth_coeff} results valid acc as: {val_acc1}')
@@ -322,6 +334,8 @@ def main_worker(args, device: torch.device):
             if args.search_coeff:
                 history.update({'best_lambda': best_lambda})
 
+        # args.batch_size = args.batch_size + bs_tmp
+        # args.lr = lr_tmp * (1 + step * 0.1)
         print(f'Best lambda: {best_lambda} with top1: {best_val_acc} and test top1: {test_acc1}')
 
     if_meta = ''
@@ -392,7 +406,6 @@ def train(train_loader: torch.utils.data.DataLoader,
                 scheduler.step()
 
             # measure accuracy and record loss
-            acc1, acc5 = accuracy(outputs, target, topk=(1, 5))
 
             if i % args.valid_step == 0:
                 val_metric = validate(valid_loader, model, device, args)
@@ -409,7 +422,6 @@ def train(train_loader: torch.utils.data.DataLoader,
                 history[i] = {
                     'loss_CE': loss_ce.item(),
                     'loss_Firth': loss_firth_out.item() if not no_firth else 0,
-                    'train_acc': acc1[0].item(),
                     'val_acc': val_metric,
                     'best_val_acc': best_metric,
                     'best_step': best_step
@@ -442,11 +454,13 @@ def const_ftall(train_loader: torch.utils.data.DataLoader,
     for p in model.model.parameters():
         p.requires_grad = False
 
-    optimizer = torch.optim.SGD(model.parameters(), lr=args.lr / 2, momentum=0.9, weight_decay=5e-4)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=500)
+    # optimizer = torch.optim.SGD(model.parameters(), lr=args.lr / 2, momentum=0.9, weight_decay=5e-4)
+    # lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=500)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
     # Fine-tune
-    history = train(train_loader, valid_loader, model, optimizer, scheduler, loss_firth, device, args, no_firth=False)
+    history = train(train_loader, valid_loader, model, optimizer, scheduler, loss_firth, device, args,
+                    no_firth=True if loss_firth.coeff == 0 else False)
 
     return history
 
@@ -579,8 +593,9 @@ def meta_ftall(train_loader: torch.utils.data.DataLoader,
     model.classifier = torch.nn.Linear(model.classifier.in_features, args.num_classes).to(device)
     for p in model.model.parameters():
         p.requires_grad = False
-    optimizer = torch.optim.SGD(model.parameters(), lr=args.lr / 2, momentum=0.9, weight_decay=5e-4)
-    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=500)
+    # optimizer = torch.optim.SGD(model.parameters(), lr=args.lr / 2, momentum=0.9, weight_decay=5e-4)
+    # lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=500)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
     # Meta fine-tuning
     history = meta_train(train_loader, valid_loader,
