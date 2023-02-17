@@ -21,12 +21,12 @@ parser.add_argument('-tb', '--test-batch-size', default=1024, type=int,
                     help='mini-batch size (default: 256), this is the total '
                          'batch size of all GPUs on the current node when '
                          'using Data Parallel or Distributed Data Parallel')
-parser.add_argument('--budget-size', type=int, default=200, help='query budget size per step.')
-parser.add_argument('--total-budget-size', type=int, default=2000, help='total query budget size.')
+parser.add_argument('--budget-size', type=int, default=100, help='query budget size per step.')
+parser.add_argument('--total-budget-size', type=int, default=500, help='total query budget size.')
 parser.add_argument('--lr', default=0.01, type=float, help='initial learning rate')
 parser.add_argument('--meta_lr', default=0.1, type=float, help='initial learning rate for meta method')
 parser.add_argument('--meta_update', default=10, type=int, help='iteration until meta gradient update')
-parser.add_argument('--init_coeff', default=0.1, type=float,
+parser.add_argument('--init_coeff', default=0.0, type=float,
                     help='initial coefficient for meta & constant lambda methods')
 parser.add_argument('--search-coeff', action="store_true",
                     help='search best coefficient for constant methods')
@@ -51,3 +51,7 @@ parser.add_argument('--valid_size', type=int, default=1500, help='valid set size
 parser.add_argument('--accumulate_val', action='store_true', help='let model select validation set itself')
 parser.add_argument('--filenumber', type=int, default=0, help='index of saved files')
 parser.add_argument('--device', type=int, help='gpu device id')
+parser.add_argument('--first_time_only', action='store_true', help='only run bilevel at the first time')
+parser.add_argument('--meta_inner_loop', type=int, default=20, help='meta iterations in inner loop')
+parser.add_argument('--meta_query', action='store_true', help='only run meta learning')
+parser.add_argument('--normal_query', action='store_true', help='use w/o FBR to query')

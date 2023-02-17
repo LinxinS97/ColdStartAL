@@ -12,21 +12,20 @@ def main():
     if not os.path.exists(args.indices):
         os.makedirs(args.indices)
 
-    if args.dataset == "imagenet":
-        args.num_images = 1281167
-        args.num_classes = 1000
-
-    elif args.dataset == "imagenet_lt":
-        args.num_images = 115846
-        args.num_classes = 1000
-
-    elif args.dataset == "cifar100":
-        args.num_images = 50000
-        args.num_classes = 100
-
-    elif args.dataset in ["cifar10", 'mnist']:
+    if args.dataset == "cifar10":
         args.num_images = 50000
         args.num_classes = 10
+
+    elif args.dataset == "svhn":
+        args.num_images = 73257
+        args.num_classes = 10
+
+    elif args.dataset in ['mnist', 'fashion_mnist']:
+        args.num_images = 60000
+        args.num_classes = 10
+    elif args.dataset == 'covtype':
+        args.num_images = 581012
+        args.num_classes = 7
 
     else:
         raise NotImplementedError

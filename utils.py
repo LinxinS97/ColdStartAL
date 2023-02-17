@@ -1,8 +1,85 @@
 import os
 import torch
 from torch import nn
+from torch.nn import functional as F
 from torchvision import models
 from tqdm import tqdm
+
+
+class ResNet(nn.Module):
+    def __init__(self, arch: str, is_ftall: bool = False, num_classes: int = 10):
+        super(ResNet, self).__init__()
+        self.model = models.__dict__[arch]()
+        self.ftall = is_ftall
+        if is_ftall:
+            self.classifier = nn.Linear(self.model.fc.in_features, num_classes)
+
+    def forward(self, x):
+        out = self.model(x)
+        if self.ftall:
+            out = self.classifier(out)
+        return out
+
+    def extract_features(self, x):
+        return self.model(x)
+
+
+class Identity(nn.Module):
+    def __init__(self):
+        super(Identity, self).__init__()
+
+    def forward(self, x):
+        return x
+
+
+class Normalize(nn.Module):
+    def forward(self, x):
+        return x / x.norm(2, dim=1, keepdim=True)
+
+
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+
+    def __init__(self, name, fmt=':f'):
+        self.name = name
+        self.fmt = fmt
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+    def __str__(self):
+        fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
+        return fmtstr.format(**self.__dict__)
+
+
+class ProgressMeter(object):
+    def __init__(self, num_batches, meters, prefix=""):
+        self.batch_fmtstr = self._get_batch_fmtstr(num_batches)
+        self.meters = meters
+        self.prefix = prefix
+
+    def display(self, batch):
+        entries = [self.prefix + self.batch_fmtstr.format(batch)]
+        entries += [str(meter) for meter in self.meters]
+        print('\t'.join(entries))
+
+    def _get_batch_fmtstr(self, num_batches):
+        num_digits = len(str(num_batches // 1))
+        fmt = '{:' + str(num_digits) + 'd}'
+        return '[' + fmt + '/' + fmt.format(num_batches) + ']'
 
 
 def load_weights(model, wts_path, args):
@@ -66,29 +143,6 @@ def sample_batch(loader):
             yield batch
 
 
-class ResNet(nn.Module):
-    def __init__(self, arch: str, is_ftall: bool = False, num_classes: int = 10):
-        super(ResNet, self).__init__()
-        self.model = models.__dict__[arch]()
-        self.ftall = is_ftall
-        if is_ftall:
-            self.classifier = nn.Linear(self.model.fc.in_features, num_classes)
-
-    def forward(self, x):
-        out = self.model(x)
-        if self.ftall:
-            out = self.classifier(out)
-        return out
-
-
-class Identity(nn.Module):
-    def __init__(self):
-        super(Identity, self).__init__()
-
-    def forward(self, x):
-        return x
-
-
 def get_backbone_model(arch, args):
     if args.ftall:
         model = ResNet(arch=arch, is_ftall=True, num_classes=args.num_classes)
@@ -130,11 +184,12 @@ def get_feats(loader, device, args):
         for images, target, _, _ in tqdm(loader):
             images = images.to(device)
             cur_targets = target.cpu()
-            if args.dataset == 'cifar10':
+            if args.dataset in ['cifar10', 'svhn']:
                 cur_feats = model(images).cpu()
                 B, D = cur_feats.shape
             else:
                 cur_feats = images.view(images.shape[0], -1).cpu()
+                cur_feats = torch.nn.functional.normalize(cur_feats, dim=0)
                 B, D = cur_feats.shape
             inds = torch.arange(B) + ptr
 
@@ -146,63 +201,11 @@ def get_feats(loader, device, args):
             labels.index_copy_(0, inds, cur_targets)
             ptr += B
 
-        # torch.save((feats, labels), cached_feats)
         return feats, labels
 
 
 def normalize(x):
     return x / x.norm(2, dim=1, keepdim=True)
-
-
-class Normalize(nn.Module):
-    def forward(self, x):
-        return x / x.norm(2, dim=1, keepdim=True)
-
-
-
-class AverageMeter(object):
-    """Computes and stores the average and current value"""
-
-    def __init__(self, name, fmt=':f'):
-        self.name = name
-        self.fmt = fmt
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-
-    def reset(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-
-    def update(self, val, n=1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
-
-    def __str__(self):
-        fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
-        return fmtstr.format(**self.__dict__)
-
-
-class ProgressMeter(object):
-    def __init__(self, num_batches, meters, prefix=""):
-        self.batch_fmtstr = self._get_batch_fmtstr(num_batches)
-        self.meters = meters
-        self.prefix = prefix
-
-    def display(self, batch):
-        entries = [self.prefix + self.batch_fmtstr.format(batch)]
-        entries += [str(meter) for meter in self.meters]
-        print('\t'.join(entries))
-
-    def _get_batch_fmtstr(self, num_batches):
-        num_digits = len(str(num_batches // 1))
-        fmt = '{:' + str(num_digits) + 'd}'
-        return '[' + fmt + '/' + fmt.format(num_batches) + ']'
 
 
 def accuracy(output, target, topk=(1,)):
